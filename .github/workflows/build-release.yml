@@ -1,0 +1,115 @@
+name: Build Multi-Platform Binaries
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  build:
+    # Only run if PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS builds
+          - platform: macos-arm64
+            os: macos-latest
+            target: bun-darwin-arm64
+            output: entoder-macos-arm64
+
+          - platform: macos-x64
+            os: macos-latest
+            target: bun-darwin-x64
+            output: entoder-macos-x64
+
+          # Linux builds
+          - platform: linux-arm64
+            os: ubuntu-latest
+            target: bun-linux-arm64
+            output: entoder-linux-arm64
+
+          - platform: linux-x64
+            os: ubuntu-latest
+            target: bun-linux-x64
+            output: entoder-linux-x64
+
+          # Windows build
+          - platform: windows-x64
+            os: windows-latest
+            target: bun-windows-x64
+            output: entoder-windows-x64.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Run type check
+        run: bun run typecheck
+
+      - name: Build binary for ${{ matrix.platform }}
+        run: bun build src/index.ts --compile --target=${{ matrix.target }} --outfile dist/${{ matrix.output }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output }}
+          path: dist/${{ matrix.output }}
+          retention-days: 30
+
+  # Attach binaries to version release
+  attach-to-release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Read version from package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "tag=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: binaries
+
+      - name: Display structure of downloaded files
+        run: ls -R binaries
+
+      - name: Prepare binaries for upload
+        run: |
+          mkdir -p release-binaries
+          find binaries -type f -exec mv {} release-binaries/ \;
+          ls -la release-binaries/
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.package-version.outputs.tag }}
+          files: release-binaries/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
