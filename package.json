@@ -1,6 +1,6 @@
 {
   "name": "entoder",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "CLI tool to upload photos from local directories to Ente Photos server",
   "type": "module",
   "module": "src/index.ts",
